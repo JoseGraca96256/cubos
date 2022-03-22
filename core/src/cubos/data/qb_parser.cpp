@@ -26,11 +26,13 @@ bool cubos::data::parseQB(std::vector<QBMatrix>& matrices, memory::Stream& strea
     stream.read(&compressed, 4);
     stream.read(&visibilityMaskEncoded, 4);
     stream.read(&numMatrices, 4);
+    /*
     colorFormat = memory::fromBigEndian(colorFormat);
     zAxisOrientation = memory::fromBigEndian(zAxisOrientation);
     compressed = memory::fromBigEndian(compressed);
     visibilityMaskEncoded = memory::fromBigEndian(visibilityMaskEncoded);
     numMatrices = memory::fromBigEndian(numMatrices);
+    */
 
     if (stream.eof())
     {
@@ -60,18 +62,22 @@ bool cubos::data::parseQB(std::vector<QBMatrix>& matrices, memory::Stream& strea
         stream.read(&sizeX, 4);
         stream.read(&sizeY, 4);
         stream.read(&sizeZ, 4);
+        /*
         sizeX = memory::fromBigEndian(sizeX);
         sizeY = memory::fromBigEndian(sizeY);
         sizeZ = memory::fromBigEndian(sizeZ);
+        */
         matrices[i].grid.setSize({sizeX, sizeY, sizeZ});
 
         // Read the matrix position.
         stream.read(&posX, 4);
         stream.read(&posY, 4);
         stream.read(&posZ, 4);
+        /*
         posX = memory::fromBigEndian(posX);
         posY = memory::fromBigEndian(posY);
         posZ = memory::fromBigEndian(posZ);
+        */
         matrices[i].position = glm::ivec3(posX, posY, posZ);
 
         // Read the matrix voxels.
