@@ -424,13 +424,13 @@ namespace cubos::gl
     struct Texture2DArrayDesc
     {
         const void* data[CUBOS_GL_MAX_TEXTURE_2D_ARRAY_SIZE]
-                        [CUBOS_GL_MAX_MIP_LEVEL_COUNT]; ///< Optional initial texture data.
-        size_t mipLevelCount = 1;                       ///< Number of mip levels.
-        size_t width;                                   ///< Texture width.
-        size_t height;                                  ///< Texture height.
-        size_t size;                                    ///< Number of 2D Textures contained in the array.
-        Usage usage;                                    ///< Texture usage mode.
-        TextureFormat format;                           ///< Texture format.
+                        [CUBOS_GL_MAX_MIP_LEVEL_COUNT]{}; ///< Optional initial texture data.
+        size_t mipLevelCount = 1;                         ///< Number of mip levels.
+        size_t width;                                     ///< Texture width.
+        size_t height;                                    ///< Texture height.
+        size_t size;                                      ///< Number of 2D Textures contained in the array.
+        Usage usage;                                      ///< Texture usage mode.
+        TextureFormat format;                             ///< Texture format.
     };
 
     /// 3D texture description.
@@ -682,8 +682,6 @@ namespace cubos::gl
         /// Gets a runtime property of the render device.
         /// @param prop Property name.
         virtual int getProperty(Property prop) = 0;
-
-
     };
 
     /// Abstract gl types are defined inside this namespace, they should be used (derived) only in render device
