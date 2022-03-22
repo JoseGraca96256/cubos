@@ -6,6 +6,7 @@ set(ENGINE_SAMPLES_SOURCES
     "empty.cpp"
     "renderer.cpp"
     "triangulation.cpp"
+    "car.cpp"
     )
 
 # For each sample file, create a target named after the file but without the
