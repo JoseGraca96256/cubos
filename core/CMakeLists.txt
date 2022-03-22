@@ -36,6 +36,7 @@ set(CUBOS_CORE_SOURCE
     "src/cubos/data/file_system.cpp"
     "src/cubos/data/std_archive.cpp"
     "src/cubos/data/embedded_archive.cpp"
+    "src/cubos/data/qb_parser.cpp"
 
     "src/cubos/io/window.cpp"
     "src/cubos/io/glfw_window.hpp"
@@ -81,6 +82,7 @@ set(CUBOS_CORE_INCLUDE
     "include/cubos/data/archive.hpp"
     "include/cubos/data/std_archive.hpp"
     "include/cubos/data/embedded_archive.hpp"
+    "include/cubos/data/qb_parser.hpp"
 
     "include/cubos/memory/stream.hpp"
     "include/cubos/memory/serialization_map.hpp"
