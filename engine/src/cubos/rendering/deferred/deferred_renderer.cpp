@@ -157,7 +157,7 @@ layout(std140) uniform ShadowMapInfo
 
 uniform CascadeInfo
 {
-    float cascadeDistances[%d];
+    float cascadeDistances[%d - 1];
     uint cascadeCount;
 };
 
@@ -290,14 +290,26 @@ float directionalShadow(vec3 fragPos, vec3 fragNormal, uint lightIndex) {
     }
     // calculate bias (based on depth map resolution and slope)
     float bias = max(0.05 * (1.0 - dot(fragNormal, -vec3(directionalLights[lightIndex].rotation * vec4(0, 0, 1, 1)))), 0.005);
-    if (layer == cascadeCount - 1)
+    float near;
+    float far;
+    if (layer == 0)
     {
-        bias *= 0.2 / (farPlane * 0.5f);
+        near = nearPlane;
     }
     else
     {
-        bias *= 0.2 / (cascadeDistances[layer] * 0.5f);
+        near = cascadeDistances[layer - 1];
     }
+
+    if (layer == cascadeCount - 1)
+    {
+        far = farPlane;
+    }
+    else
+    {
+        far = cascadeDistances[layer];
+    }
+    bias *= 0.2 / ((far - near) * 0.5f);
 
     // PCF
     float shadow = 0.0;
@@ -322,6 +334,7 @@ float directionalShadow(vec3 fragPos, vec3 fragNormal, uint lightIndex) {
         shadow = 0.0;
     }
 
+    //return shadow * (1 - float(layer) / (cascadeCount - 1));
     return shadow;
 }
 

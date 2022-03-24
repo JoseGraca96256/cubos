@@ -87,7 +87,7 @@ namespace cubos::rendering
 
         struct CascadeInfoUniform
         {
-            float cascadeDistances[CUBOS_MAX_DIRECTIONAL_SHADOW_MAP_STRIDE];
+            float cascadeDistances[CUBOS_MAX_DIRECTIONAL_SHADOW_MAP_STRIDE - 1];
             uint32_t cascadeCount;
         };
 

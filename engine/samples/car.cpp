@@ -11,9 +11,14 @@
 #include <cubos/data/file_system.hpp>
 #include <cubos/data/std_archive.hpp>
 #include <cubos/data/qb_parser.hpp>
+#include <cubos/io/input_manager.hpp>
+#include <cubos/io/sources/double_axis.hpp>
+#include <cubos/io/sources/single_axis.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/ext.hpp>
 #include <unordered_map>
 
 using namespace cubos;
@@ -22,10 +27,12 @@ int main(void)
 {
     initializeLogger();
     auto window = io::Window::create();
+    window->setMouseLockState(io::MouseLockState::Locked);
+
     auto& renderDevice = window->getRenderDevice();
 
     auto shadowMapper = rendering::CSMShadowMapper(renderDevice, 512, 2048, 256, 4);
-    shadowMapper.setCascadeDistances({5, 10, 20});
+    shadowMapper.setCascadeDistances({/**/ 3, 10, 24 /**/});
 
     auto renderer = rendering::DeferredRenderer(*window);
 
@@ -38,41 +45,13 @@ int main(void)
     std::vector<QBMatrix> model;
     auto qbStream = qb->open(File::OpenMode::Read);
     parseQB(model, *qbStream);
-    gl::Palette palette1(std::vector<gl::Material>{
-        {{1, 0, 0, 1}},
-        {{0, 1, 0, 1}},
-        {{0, 0, 1, 1}},
-        {{1, 1, 0, 1}},
-        {{0, 1, 1, 1}},
-        {{1, 0, 1, 1}},
-    });
-    gl::Palette palette2(std::vector<gl::Material>{
-        {{0, 1, 1, 1}},
-        {{1, 0, 1, 1}},
-        {{1, 1, 0, 1}},
-        {{0, 0, 1, 1}},
-        {{1, 0, 0, 1}},
-        {{0, 1, 0, 1}},
-    });
 
-    auto palette1ID = renderer.registerPalette(model[0].palette);
-    auto palette2ID = renderer.registerPalette(model[0].palette);
+    auto paletteID = renderer.registerPalette(model[0].palette);
+    renderer.setPalette(paletteID);
 
     std::vector<cubos::gl::Vertex> vertices;
 
     std::vector<uint32_t> indices;
-
-    cubos::gl::Grid grid(glm::ivec3(3, 2, 3));
-    grid.set(glm::ivec3(0, 0, 0), 1);
-    grid.set(glm::ivec3(1, 0, 0), 2);
-    grid.set(glm::ivec3(2, 0, 0), 1);
-    grid.set(glm::ivec3(0, 0, 1), 2);
-    grid.set(glm::ivec3(1, 0, 1), 1);
-    grid.set(glm::ivec3(2, 0, 1), 2);
-    grid.set(glm::ivec3(0, 0, 2), 1);
-    grid.set(glm::ivec3(1, 0, 2), 2);
-    grid.set(glm::ivec3(2, 0, 2), 1);
-    grid.set(glm::ivec3(1, 1, 1), 3);
 
     std::vector<cubos::gl::Triangle> triangles = cubos::gl::Triangulation::Triangulate(model[0].grid);
 
@@ -126,20 +105,59 @@ int main(void)
     rendering::CopyPass pass = rendering::CopyPass(*window);
     renderer.addPostProcessingPass(pass);
 
-    glm::vec2 windowSize = window->getFramebufferSize();
-    gl::CameraData mainCamera = {glm::lookAt(glm::vec3{7}, glm::vec3{0, 0, 0}, glm::vec3{0, 1, 0}),
-                                 glm::radians(20.0f),
-                                 windowSize.x / windowSize.y,
-                                 0.1f,
-                                 100.f,
-                                 0};
+    struct
+    {
+        glm::vec3 pos{7, 0, 7};
+        glm::vec2 orientation{-45.0f * 3, 0.0f};
+
+        glm::vec3 getForward() const
+        {
+            auto o = glm::radians(orientation);
+            return {cos(o.x) * cos(o.y), sin(o.y), sin(o.x) * cos(o.y)};
+        }
+    } camera;
+
+    glm::vec2 lastLook(-1);
     float t = 0;
+    float deltaT = 0;
+
+    io::InputManager::init(window);
+
+    auto lookAction = io::InputManager::createAction("Look");
+    lookAction->addBinding([&](io::Context ctx) {
+        auto pos = ctx.getValue<glm::vec2>();
+        pos.y = -pos.y;
+        if (lastLook != glm::vec2(-1))
+        {
+            auto delta = pos - lastLook;
+            camera.orientation += delta * 0.1f;
+            camera.orientation.y = glm::clamp(camera.orientation.y, -80.0f, 80.0f);
+        }
+        lastLook = pos;
+    });
+    lookAction->addSource(new io::DoubleAxis(cubos::io::MouseAxis::X, cubos::io::MouseAxis::Y));
+
+    glm::vec3 movement(0);
+
+    auto forwardAction = io::InputManager::createAction("Forward");
+    forwardAction->addBinding([&](io::Context ctx) { movement.z = ctx.getValue<float>(); });
+    forwardAction->addSource(new io::SingleAxis(io::Key::S, io::Key::W));
+
+    auto strafeAction = io::InputManager::createAction("Strafe");
+    strafeAction->addBinding([&](io::Context ctx) { movement.x = ctx.getValue<float>(); });
+    strafeAction->addSource(new io::SingleAxis(io::Key::A, io::Key::D));
+
+    auto verticalAction = io::InputManager::createAction("Vertical");
+    verticalAction->addBinding([&](io::Context ctx) { movement.y = ctx.getValue<float>(); });
+    verticalAction->addSource(new io::SingleAxis(io::Key::Q, io::Key::E));
+
+    glm::vec2 windowSize = window->getFramebufferSize();
+
     int s = 0;
 
     while (!window->shouldClose())
     {
         float currentT = window->getTime();
-        float deltaT = 0;
         if (t != 0)
         {
             deltaT = currentT - t;
@@ -184,20 +202,25 @@ int main(void)
         renderer.drawLight(gl::PointLightData(pointLightRotation * glm::vec3(0, 0, -2), glm::vec3(1), 1, 10, false));
         /**/
 
-        if (sin(t * 4) > 0)
-        {
-            renderer.setPalette(palette1ID);
-        }
-        else
-        {
-            renderer.setPalette(palette2ID);
-        }
+        auto forward = camera.getForward();
+        auto right = glm::cross(forward, {0, 1, 0});
+        auto up = glm::cross(right, forward);
+        auto offset = (movement.z * forward + movement.x * right + movement.y * up) * deltaT * 2;
+        camera.pos += offset;
+
+        gl::CameraData mainCamera = {glm::lookAt(camera.pos, camera.pos + camera.getForward(), glm::vec3{0, 1, 0}),
+                                     glm::radians(70.0f),
+                                     windowSize.x / windowSize.y,
+                                     0.1f,
+                                     50.f,
+                                     0};
 
         renderer.render(mainCamera, false);
         renderer.flush();
 
         window->swapBuffers();
         window->pollEvents();
+        io::InputManager::processActions();
     }
 
     delete window;

@@ -22,7 +22,7 @@ namespace cubos::rendering
         size_t numCascades;
         float cascades[CUBOS_MAX_DIRECTIONAL_SHADOW_MAP_STRIDE - 1];
 
-        float zMultiplier = 1.0f;
+        float zMultiplier = 2.0f;
 
         // region Spot Pipeline
         gl::Texture2DArray spotAtlas;
