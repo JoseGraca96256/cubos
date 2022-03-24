@@ -13,6 +13,7 @@
 #include <cubos/io/input_manager.hpp>
 #include <cubos/io/sources/double_axis.hpp>
 #include <cubos/io/sources/single_axis.hpp>
+#include <cubos/io/sources/button_press.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -78,17 +79,30 @@ public:
         });
         lookAction->addSource(new io::DoubleAxis(cubos::io::MouseAxis::X, cubos::io::MouseAxis::Y));
 
-        auto forwardAction = io::InputManager::createAction("Forward");
-        forwardAction->addBinding([&](io::Context ctx) { movement.z = ctx.getValue<float>(); });
+        auto forwardAction = io::InputManager::createAction("Camera Forward");
+        forwardAction->addBinding([&](io::Context ctx) {
+            if (enabled)
+                movement.z = ctx.getValue<float>();
+        });
         forwardAction->addSource(new io::SingleAxis(io::Key::S, io::Key::W));
 
-        auto strafeAction = io::InputManager::createAction("Strafe");
-        strafeAction->addBinding([&](io::Context ctx) { movement.x = ctx.getValue<float>(); });
+        auto strafeAction = io::InputManager::createAction("Camera Strafe");
+        strafeAction->addBinding([&](io::Context ctx) {
+            if (enabled)
+                movement.x = ctx.getValue<float>();
+        });
         strafeAction->addSource(new io::SingleAxis(io::Key::A, io::Key::D));
 
-        auto verticalAction = io::InputManager::createAction("Vertical");
-        verticalAction->addBinding([&](io::Context ctx) { movement.y = ctx.getValue<float>(); });
+        auto verticalAction = io::InputManager::createAction("Camera Vertical");
+        verticalAction->addBinding([&](io::Context ctx) {
+            if (enabled)
+                movement.y = ctx.getValue<float>();
+        });
         verticalAction->addSource(new io::SingleAxis(io::Key::Q, io::Key::E));
+
+        auto enableAction = io::InputManager::createAction("Enable Camera");
+        enableAction->addBinding([&](io::Context ctx) { enabled = !enabled; });
+        enableAction->addSource(new io::ButtonPress(io::Key::Space));
     }
 
     glm::vec3 getForward() const
@@ -97,7 +111,8 @@ public:
         return {cos(o.x) * cos(o.y), sin(o.y), sin(o.x) * cos(o.y)};
     }
 
-    void update(float deltaT) {
+    void update(float deltaT)
+    {
         auto forward = getForward();
         auto right = glm::cross(forward, {0, 1, 0});
         auto up = glm::cross(right, forward);
@@ -105,7 +120,8 @@ public:
         pos += offset;
     }
 
-    gl::CameraData getCameraData(const glm::vec2& windowSize) {
+    gl::CameraData getCameraData(const glm::vec2& windowSize)
+    {
         return {glm::lookAt(pos, pos + getForward(), glm::vec3{0, 1, 0}),
                 glm::radians(70.0f),
                 windowSize.x / windowSize.y,
@@ -118,8 +134,15 @@ public:
 class Car
 {
 private:
+    bool enabled = false;
     rendering::Renderer& renderer;
     rendering::Renderer::ModelID carId;
+    float turnInput = 0;
+    float accelerationInput = 0;
+    float accelerationTime = 1;
+    float drag = 1;
+    float relVelocity = 0;
+    float maxVelocity = 10;
 
 public:
     glm::vec3 position{0};
@@ -136,6 +159,23 @@ public:
 
         carId = registerModel(carModel[0].grid, carModel[0].palette, renderer);
 
+        auto forwardAction = io::InputManager::createAction("Car Forward");
+        forwardAction->addBinding([&](io::Context ctx) {
+            if (enabled)
+                accelerationInput = ctx.getValue<float>();
+        });
+        forwardAction->addSource(new io::SingleAxis(io::Key::S, io::Key::W));
+
+        auto strafeAction = io::InputManager::createAction("Car Turn");
+        strafeAction->addBinding([&](io::Context ctx) {
+            if (enabled)
+                turnInput = ctx.getValue<float>();
+        });
+        strafeAction->addSource(new io::SingleAxis(io::Key::A, io::Key::D));
+
+        auto enableAction = io::InputManager::createAction("Enable Car");
+        enableAction->addBinding([&](io::Context ctx) { enabled = !enabled; });
+        enableAction->addSource(new io::ButtonPress(io::Key::Space));
     }
 
     void draw()
@@ -143,6 +183,17 @@ public:
         glm::mat4 modelMat =
             glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) * glm::scale(glm::mat4(1.0f), scale);
         renderer.drawModel(carId, modelMat);
+    }
+
+    void update(float deltaT)
+    {
+        relVelocity = glm::clamp(relVelocity + deltaT / accelerationTime * accelerationInput, -1.0f, 1.0f);
+        if (accelerationInput == 0)
+        {
+            relVelocity = glm::clamp(relVelocity + deltaT * drag * glm::sign(-relVelocity), -1.0f, 1.0f);
+        }
+        position += glm::vec3(0, 0, relVelocity * maxVelocity) * deltaT;
+        position += glm::vec3(turnInput, 0, 0) * deltaT;
     }
 };
 
@@ -161,22 +212,19 @@ int main(void)
 
     renderer.setShadowMapper(&shadowMapper);
 
-    data::FileSystem::mount("/assets",
-                            std::make_shared<data::STDArchive>(std::filesystem::current_path(), true, false));
+    data::FileSystem::mount("/assets", std::make_shared<data::STDArchive>(SAMPLE_ASSETS_FOLDER, true, false));
     io::InputManager::init(window);
 
     Car car(renderer);
+    FreeCamera camera;
 
     auto paletteID = renderer.registerPalette(palette);
     renderer.setPalette(paletteID);
-
-    FreeCamera camera;
 
     rendering::CopyPass pass = rendering::CopyPass(*window);
     renderer.addPostProcessingPass(pass);
     float t = 0;
     float deltaT = 0;
-
 
     glm::vec2 windowSize = window->getFramebufferSize();
 
@@ -199,6 +247,7 @@ int main(void)
 
         auto axis = glm::vec3(1, 0, 0);
 
+        car.update(deltaT);
         car.draw();
 
         /*
