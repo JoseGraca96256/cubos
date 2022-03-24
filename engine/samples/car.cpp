@@ -4,7 +4,6 @@
 #include <cubos/gl/vertex.hpp>
 #include <cubos/gl/palette.hpp>
 #include <cubos/gl/grid.hpp>
-#include <cubos/gl/triangulation.hpp>
 #include <cubos/rendering/deferred/deferred_renderer.hpp>
 #include <cubos/rendering/shadow_mapping/csm_shadow_mapper.hpp>
 #include <cubos/rendering/post_processing/copy_pass.hpp>
@@ -23,6 +22,130 @@
 
 using namespace cubos;
 
+gl::Palette palette;
+
+rendering::Renderer::ModelID registerModel(gl::Grid& grid, const gl::Palette& modelPalette,
+                                           rendering::Renderer& renderer)
+{
+    for (int x = 0; x < grid.getSize().x; ++x)
+    {
+        for (int y = 0; y < grid.getSize().y; ++y)
+        {
+            for (int z = 0; z < grid.getSize().z; ++z)
+            {
+                auto index = grid.get(glm::vec3(x, y, z));
+                if (index > 0)
+                    grid.set(glm::vec3(x, y, z), index + palette.getSize());
+            }
+        }
+    }
+    auto origSize = palette.getSize();
+    for (int i = 0; i < modelPalette.getSize(); ++i)
+    {
+        palette.set(origSize + i + 1, modelPalette.get(i + 1));
+    }
+
+    std::vector<cubos::gl::Vertex> vertices;
+    std::vector<uint32_t> indices;
+    cubos::gl::triangulate(grid, vertices, indices);
+
+    return renderer.registerModel(vertices, indices);
+}
+
+class FreeCamera
+{
+private:
+    bool enabled = true;
+    glm::vec2 lastLook{-1};
+    glm::vec3 pos{7, 0, 7};
+    glm::vec2 orientation{-45.0f * 3, 0.0f};
+    glm::vec3 movement{0};
+
+public:
+    FreeCamera()
+    {
+        auto lookAction = io::InputManager::createAction("Look");
+        lookAction->addBinding([&](io::Context ctx) {
+            auto pos = ctx.getValue<glm::vec2>();
+            pos.y = -pos.y;
+            if (lastLook != glm::vec2(-1))
+            {
+                auto delta = pos - lastLook;
+                orientation += delta * 0.1f;
+                orientation.y = glm::clamp(orientation.y, -80.0f, 80.0f);
+            }
+            lastLook = pos;
+        });
+        lookAction->addSource(new io::DoubleAxis(cubos::io::MouseAxis::X, cubos::io::MouseAxis::Y));
+
+        auto forwardAction = io::InputManager::createAction("Forward");
+        forwardAction->addBinding([&](io::Context ctx) { movement.z = ctx.getValue<float>(); });
+        forwardAction->addSource(new io::SingleAxis(io::Key::S, io::Key::W));
+
+        auto strafeAction = io::InputManager::createAction("Strafe");
+        strafeAction->addBinding([&](io::Context ctx) { movement.x = ctx.getValue<float>(); });
+        strafeAction->addSource(new io::SingleAxis(io::Key::A, io::Key::D));
+
+        auto verticalAction = io::InputManager::createAction("Vertical");
+        verticalAction->addBinding([&](io::Context ctx) { movement.y = ctx.getValue<float>(); });
+        verticalAction->addSource(new io::SingleAxis(io::Key::Q, io::Key::E));
+    }
+
+    glm::vec3 getForward() const
+    {
+        auto o = glm::radians(orientation);
+        return {cos(o.x) * cos(o.y), sin(o.y), sin(o.x) * cos(o.y)};
+    }
+
+    void update(float deltaT) {
+        auto forward = getForward();
+        auto right = glm::cross(forward, {0, 1, 0});
+        auto up = glm::cross(right, forward);
+        auto offset = (movement.z * forward + movement.x * right + movement.y * up) * deltaT * 2;
+        pos += offset;
+    }
+
+    gl::CameraData getCameraData(const glm::vec2& windowSize) {
+        return {glm::lookAt(pos, pos + getForward(), glm::vec3{0, 1, 0}),
+                glm::radians(70.0f),
+                windowSize.x / windowSize.y,
+                0.1f,
+                50.f,
+                0};
+    }
+};
+
+class Car
+{
+private:
+    rendering::Renderer& renderer;
+    rendering::Renderer::ModelID carId;
+
+public:
+    glm::vec3 position{0};
+    glm::quat rotation{};
+    glm::vec3 scale{0.1f};
+
+    explicit Car(rendering::Renderer& renderer) : renderer(renderer)
+    {
+        using namespace cubos::data;
+        auto qb = FileSystem::find("/assets/car.qb");
+        std::vector<QBMatrix> carModel;
+        auto qbStream = qb->open(File::OpenMode::Read);
+        parseQB(carModel, *qbStream);
+
+        carId = registerModel(carModel[0].grid, carModel[0].palette, renderer);
+
+    }
+
+    void draw()
+    {
+        glm::mat4 modelMat =
+            glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) * glm::scale(glm::mat4(1.0f), scale);
+        renderer.drawModel(carId, modelMat);
+    }
+};
+
 int main(void)
 {
     initializeLogger();
@@ -38,118 +161,22 @@ int main(void)
 
     renderer.setShadowMapper(&shadowMapper);
 
-    using namespace cubos::data;
+    data::FileSystem::mount("/assets",
+                            std::make_shared<data::STDArchive>(std::filesystem::current_path(), true, false));
+    io::InputManager::init(window);
 
-    FileSystem::mount("/assets", std::make_shared<STDArchive>(std::filesystem::current_path(), true, false));
-    auto qb = FileSystem::find("/assets/tank.qb");
-    std::vector<QBMatrix> model;
-    auto qbStream = qb->open(File::OpenMode::Read);
-    parseQB(model, *qbStream);
+    Car car(renderer);
 
-    auto paletteID = renderer.registerPalette(model[0].palette);
+    auto paletteID = renderer.registerPalette(palette);
     renderer.setPalette(paletteID);
 
-    std::vector<cubos::gl::Vertex> vertices;
-
-    std::vector<uint32_t> indices;
-
-    std::vector<cubos::gl::Triangle> triangles = cubos::gl::Triangulation::Triangulate(model[0].grid);
-
-    std::unordered_map<cubos::gl::Vertex, int, cubos::gl::Vertex::hash> vertex_to_index;
-
-    for (auto it = triangles.begin(); it != triangles.end(); it++)
-    {
-
-        int v0_index = -1;
-        if (!vertex_to_index.contains(it->v0))
-        {
-            v0_index = vertex_to_index[it->v0] = vertices.size();
-            vertices.push_back(it->v0);
-        }
-        else
-        {
-            v0_index = vertex_to_index[it->v0];
-        }
-
-        indices.push_back(v0_index);
-
-        int v1_index = -1;
-        if (!vertex_to_index.contains(it->v1))
-        {
-            v1_index = vertex_to_index[it->v1] = vertices.size();
-            vertices.push_back(it->v1);
-        }
-        else
-        {
-            v1_index = vertex_to_index[it->v1];
-        }
-
-        indices.push_back(v1_index);
-
-        int v2_index = -1;
-        if (!vertex_to_index.contains(it->v2))
-        {
-            v2_index = vertex_to_index[it->v2] = vertices.size();
-            vertices.push_back(it->v2);
-        }
-        else
-        {
-            v2_index = vertex_to_index[it->v2];
-        }
-
-        indices.push_back(v2_index);
-    }
-
-    rendering::Renderer::ModelID id = renderer.registerModel(vertices, indices);
+    FreeCamera camera;
 
     rendering::CopyPass pass = rendering::CopyPass(*window);
     renderer.addPostProcessingPass(pass);
-
-    struct
-    {
-        glm::vec3 pos{7, 0, 7};
-        glm::vec2 orientation{-45.0f * 3, 0.0f};
-
-        glm::vec3 getForward() const
-        {
-            auto o = glm::radians(orientation);
-            return {cos(o.x) * cos(o.y), sin(o.y), sin(o.x) * cos(o.y)};
-        }
-    } camera;
-
-    glm::vec2 lastLook(-1);
     float t = 0;
     float deltaT = 0;
 
-    io::InputManager::init(window);
-
-    auto lookAction = io::InputManager::createAction("Look");
-    lookAction->addBinding([&](io::Context ctx) {
-        auto pos = ctx.getValue<glm::vec2>();
-        pos.y = -pos.y;
-        if (lastLook != glm::vec2(-1))
-        {
-            auto delta = pos - lastLook;
-            camera.orientation += delta * 0.1f;
-            camera.orientation.y = glm::clamp(camera.orientation.y, -80.0f, 80.0f);
-        }
-        lastLook = pos;
-    });
-    lookAction->addSource(new io::DoubleAxis(cubos::io::MouseAxis::X, cubos::io::MouseAxis::Y));
-
-    glm::vec3 movement(0);
-
-    auto forwardAction = io::InputManager::createAction("Forward");
-    forwardAction->addBinding([&](io::Context ctx) { movement.z = ctx.getValue<float>(); });
-    forwardAction->addSource(new io::SingleAxis(io::Key::S, io::Key::W));
-
-    auto strafeAction = io::InputManager::createAction("Strafe");
-    strafeAction->addBinding([&](io::Context ctx) { movement.x = ctx.getValue<float>(); });
-    strafeAction->addSource(new io::SingleAxis(io::Key::A, io::Key::D));
-
-    auto verticalAction = io::InputManager::createAction("Vertical");
-    verticalAction->addBinding([&](io::Context ctx) { movement.y = ctx.getValue<float>(); });
-    verticalAction->addSource(new io::SingleAxis(io::Key::Q, io::Key::E));
 
     glm::vec2 windowSize = window->getFramebufferSize();
 
@@ -172,12 +199,14 @@ int main(void)
 
         auto axis = glm::vec3(1, 0, 0);
 
-        auto modelMat = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0)) *
-                        glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 0.5f, 0.5f)) *
-                        glm::rotate(glm::mat4(1.0f), glm::radians(t) * 10, axis) *
-                        glm::translate(glm::mat4(1.0f), glm::vec3(-0.5f, -0.5f, -0.5f)) *
-                        glm::scale(glm::mat4(1.0f), glm::vec3(0.025f));
-        renderer.drawModel(id, modelMat);
+        car.draw();
+
+        /*
+        modelMat = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0)) *
+                   glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), axis) *
+                   glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+        renderer.drawModel(floorId, modelMat);
+         */
 
         glm::quat directionalLightRotation =
             glm::quat(glm::vec3(0, 0, 0)) * glm::quat(glm::vec3(glm::radians(45.0f), 0, 0));
@@ -202,20 +231,9 @@ int main(void)
         renderer.drawLight(gl::PointLightData(pointLightRotation * glm::vec3(0, 0, -2), glm::vec3(1), 1, 10, false));
         /**/
 
-        auto forward = camera.getForward();
-        auto right = glm::cross(forward, {0, 1, 0});
-        auto up = glm::cross(right, forward);
-        auto offset = (movement.z * forward + movement.x * right + movement.y * up) * deltaT * 2;
-        camera.pos += offset;
+        camera.update(deltaT);
 
-        gl::CameraData mainCamera = {glm::lookAt(camera.pos, camera.pos + camera.getForward(), glm::vec3{0, 1, 0}),
-                                     glm::radians(70.0f),
-                                     windowSize.x / windowSize.y,
-                                     0.1f,
-                                     50.f,
-                                     0};
-
-        renderer.render(mainCamera, false);
+        renderer.render(camera.getCameraData(windowSize), false);
         renderer.flush();
 
         window->swapBuffers();

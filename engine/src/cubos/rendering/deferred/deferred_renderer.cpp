@@ -400,7 +400,7 @@ void main()
         }
         lighting += val;
     }
-    color = vec4(albedo * max(lighting, 0.05), 1);
+    color = vec4(albedo * max(lighting, 0.2), 1);
 }
         )",
                      CUBOS_DEFERRED_RENDERER_MAX_SPOT_LIGHT_COUNT, CUBOS_DEFERRED_RENDERER_MAX_DIRECTIONAL_LIGHT_COUNT,
