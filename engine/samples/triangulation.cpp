@@ -4,13 +4,12 @@
 #include <cubos/gl/vertex.hpp>
 #include <cubos/gl/palette.hpp>
 #include <cubos/gl/grid.hpp>
-#include <cubos/gl/triangulation.hpp>
 #include <cubos/rendering/deferred/deferred_renderer.hpp>
 #include <cubos/rendering/post_processing/copy_pass.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
-#include <unordered_map>
 
 using namespace cubos;
 
@@ -42,67 +41,21 @@ int main(void)
     auto palette2ID = renderer.registerPalette(palette2);
 
     std::vector<cubos::gl::Vertex> vertices;
-
     std::vector<uint32_t> indices;
 
-    cubos::gl::Grid grid(glm::ivec3(3, 2, 3));
-    grid.set(glm::ivec3(0, 0, 0), 1);
-    grid.set(glm::ivec3(1, 0, 0), 2);
-    grid.set(glm::ivec3(2, 0, 0), 1);
-    grid.set(glm::ivec3(0, 0, 1), 2);
-    grid.set(glm::ivec3(1, 0, 1), 1);
-    grid.set(glm::ivec3(2, 0, 1), 2);
-    grid.set(glm::ivec3(0, 0, 2), 1);
-    grid.set(glm::ivec3(1, 0, 2), 2);
-    grid.set(glm::ivec3(2, 0, 2), 1);
-    grid.set(glm::ivec3(1, 1, 1), 3);
+    gl::Grid grid({ 3, 2, 3 });
+    grid.set({ 0, 0, 0 }, 1);
+    grid.set({ 1, 0, 0 }, 2);
+    grid.set({ 2, 0, 0 }, 1);
+    grid.set({ 0, 0, 1 }, 2);
+    grid.set({ 1, 0, 1 }, 1);
+    grid.set({ 2, 0, 1 }, 2);
+    grid.set({ 0, 0, 2 }, 1);
+    grid.set({ 1, 0, 2 }, 2);
+    grid.set({ 2, 0, 2 }, 1);
+    grid.set({ 1, 1, 1 }, 3);
 
-    std::vector<cubos::gl::Triangle> triangles = cubos::gl::Triangulation::Triangulate(grid);
-
-    std::unordered_map<cubos::gl::Vertex, int, cubos::gl::Vertex::hash> vertex_to_index;
-
-    for (auto it = triangles.begin(); it != triangles.end(); it++)
-    {
-
-        int v0_index = -1;
-        if (!vertex_to_index.contains(it->v0))
-        {
-            v0_index = vertex_to_index[it->v0] = vertices.size();
-            vertices.push_back(it->v0);
-        }
-        else
-        {
-            v0_index = vertex_to_index[it->v0];
-        }
-
-        indices.push_back(v0_index);
-
-        int v1_index = -1;
-        if (!vertex_to_index.contains(it->v1))
-        {
-            v1_index = vertex_to_index[it->v1] = vertices.size();
-            vertices.push_back(it->v1);
-        }
-        else
-        {
-            v1_index = vertex_to_index[it->v1];
-        }
-
-        indices.push_back(v1_index);
-
-        int v2_index = -1;
-        if (!vertex_to_index.contains(it->v2))
-        {
-            v2_index = vertex_to_index[it->v2] = vertices.size();
-            vertices.push_back(it->v2);
-        }
-        else
-        {
-            v2_index = vertex_to_index[it->v2];
-        }
-
-        indices.push_back(v2_index);
-    }
+    gl::triangulate(grid, vertices, indices);
 
     rendering::Renderer::ModelID id = renderer.registerModel(vertices, indices);
 
@@ -135,23 +88,13 @@ int main(void)
         renderDevice.setFramebuffer(0);
         renderDevice.clearColor(0.0, 0.0, 0.0, 0.0f);
 
-        auto axis = glm::vec3(0, 0, 0) * 2.0f + glm::vec3(1);
-
-        auto modelMat = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0)) *
-                        glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 0.5f, 0.5f)) *
-                        glm::rotate(glm::mat4(1.0f), glm::radians(t) * 2, axis) *
-                        glm::translate(glm::mat4(1.0f), glm::vec3(-0.5f, -0.5f, -0.5f));
+        auto modelMat = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)) *
+                        glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 1.5f, 0.5f)) *
+                        glm::rotate(glm::mat4(1.0f), glm::radians(t) * 32, { 0.0f, 1.0f, 0.0 });
         renderer.drawModel(id, modelMat);
 
-        glm::quat spotLightRotation = glm::quat(glm::vec3(0, t, 0)) * glm::quat(glm::vec3(glm::radians(45.0f), 0, 0));
-        glm::quat directionalLightRotation =
-            glm::quat(glm::vec3(0, 90, 0)) * glm::quat(glm::vec3(glm::radians(45.0f), 0, 0));
-        glm::quat pointLightRotation = glm::quat(glm::vec3(0, -t, 0)) * glm::quat(glm::vec3(glm::radians(45.0f), 0, 0));
-
-        renderer.drawLight(gl::SpotLightData(spotLightRotation * glm::vec3(0, 0, -5), spotLightRotation, glm::vec3(1),
-                                             1, 100, glm::radians(10.0f), glm::radians(9.0f)));
+        glm::quat directionalLightRotation = glm::quat(glm::vec3(0, 90, 0)) * glm::quat(glm::vec3(glm::radians(45.0f), 0, 0));
         renderer.drawLight(gl::DirectionalLightData(directionalLightRotation, glm::vec3(1), 0.5f));
-        renderer.drawLight(gl::PointLightData(pointLightRotation * glm::vec3(0, 0, -2), glm::vec3(1), 1, 10));
 
         if (sin(t * 4) > 0)
         {
