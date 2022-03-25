@@ -132,6 +132,86 @@ public:
     }
 };
 
+class Particle
+{
+private:
+    rendering::Renderer& renderer;
+    static rendering::Renderer::ModelID modelId;
+    static glm::vec3 modelOffset;
+
+public:
+    glm::vec3 position{0};
+    glm::quat rotation = glm::angleAxis(0.0f, glm::vec3(0, 1, 0));
+    glm::vec3 scale{1};
+    glm::vec3 velocity{0};
+
+    Particle(rendering::Renderer& renderer) : renderer(renderer)
+    {
+        if (modelId == -1)
+        {
+            auto palette = gl::Palette({
+                gl::Material{{0.5f, 0.5f, 0.5f, 1.0f}},
+            });
+            gl::Grid grid(glm::uvec3{1}, {1});
+            modelOffset = glm::vec3{0.5f};
+
+            modelId = registerModel(grid, palette, renderer);
+        }
+    }
+
+    void update(float deltaT)
+    {
+        position += velocity * deltaT;
+    }
+
+    void draw()
+    {
+        glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) *
+                             glm::scale(glm::mat4(1.0f), scale) * glm::translate(glm::mat4{1.0f}, modelOffset);
+        renderer.drawModel(modelId, modelMat);
+    }
+};
+
+rendering::Renderer::ModelID Particle::modelId = -1;
+
+class Trail
+{
+private:
+    rendering::Renderer& renderer;
+    std::vector<Particle> particles;
+    float t = 0;
+    float particlesPerSec = 1;
+
+public:
+    glm::vec3 pos{0};
+    Trail(rendering::Renderer& renderer) : renderer(renderer)
+    {
+    }
+
+    void update(float deltaT)
+    {
+        for (Particle& particle : particles)
+        {
+            particle.update(deltaT);
+        }
+        t += deltaT;
+        while (t > particlesPerSec)
+        {
+            t -= deltaT;
+            auto& particle = particles.emplace_back(renderer);
+            particle.velocity = glm::vec3(1);
+        }
+    }
+
+    void draw()
+    {
+        for (Particle& particle : particles)
+        {
+            particle.draw();
+        }
+    }
+};
+
 class Car
 {
 private:
