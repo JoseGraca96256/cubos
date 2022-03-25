@@ -1,5 +1,6 @@
 #include <cubos/gl/vertex.hpp>
 #include <cubos/gl/util.hpp>
+#include <cubos/gl/debug.hpp>
 #include <cubos/rendering/deferred/deferred_renderer.hpp>
 #include <fmt/printf.h>
 #include <cubos/log.hpp>
@@ -718,6 +719,8 @@ void DeferredRenderer::render(const CameraData& camera, bool usePostProcessing)
     {
         executePostProcessing(camera.target);
     }
+
+    Debug::flush(glm::perspective(camera.FOV, camera.aspectRatio, camera.nearPlane, camera.farPlane) * camera.viewMatrix,0);
 }
 
 void DeferredRenderer::flush()
