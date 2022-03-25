@@ -145,7 +145,7 @@ private:
     float lateralDrag = 3.0f;
     float maxVelocity = 10;
     glm::vec3 modelOffset;
-    glm::vec3 velocity;
+    glm::vec3 velocity{0.0f};
     float turnSpeed = 50.0f;
     float rotationVelocity = 0;
     float rotationMaxVelocity = 3.0f;
