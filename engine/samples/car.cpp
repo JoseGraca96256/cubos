@@ -197,6 +197,41 @@ public:
     }
 };
 
+class Floor
+{
+public:
+    Floor(rendering::Renderer& renderer, Car& car) : renderer(renderer), car(car)
+    {
+        auto grid = gl::Grid({256, 1, 256});
+        auto palette = gl::Palette({
+            gl::Material{{0.5f, 0.5f, 0.5f, 1.0f}},
+            gl::Material{{1.0f, 1.0f, 1.0f, 1.0f}},
+        });
+
+        for (int x = 0; x < 256; ++x)
+            for (int z = 0; z < 256; ++z)
+                grid.set({x, 0, z}, (x + z) % 2 + 1);
+
+        floorId = registerModel(grid, palette, renderer);
+
+        scale = { 1.0f, 1.0f, 1.0f };
+    }
+
+    void draw()
+    {
+        position = glm::round(glm::vec3(car.position.x, 0, car.position.z) / 64.0f) * 64.0f - glm::vec3(128.0f, 1.0f, 128.0f);
+        glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), position) * glm::scale(glm::mat4(1.0f), scale);
+        renderer.drawModel(floorId, modelMat);
+    }
+
+private:
+    glm::vec3 position, scale;
+
+    Car& car;
+    rendering::Renderer& renderer;
+    rendering::Renderer::ModelID floorId;
+};
+
 int main(void)
 {
     initializeLogger();
@@ -216,6 +251,7 @@ int main(void)
     io::InputManager::init(window);
 
     Car car(renderer);
+    Floor floor(renderer, car);
     FreeCamera camera;
 
     auto paletteID = renderer.registerPalette(palette);
@@ -249,6 +285,7 @@ int main(void)
 
         car.update(deltaT);
         car.draw();
+        floor.draw();
 
         /*
         modelMat = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0)) *
