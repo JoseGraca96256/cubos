@@ -59,8 +59,8 @@ class FreeCamera
 private:
     bool enabled = true;
     glm::vec2 lastLook{-1};
-    glm::vec3 pos{7, 0, 7};
-    glm::vec2 orientation{-45.0f * 3, 0.0f};
+    glm::vec3 pos{7, 7, -7};
+    glm::vec2 orientation{45.0f * 3, 0.0f};
     glm::vec3 movement{0};
 
 public:
@@ -140,12 +140,16 @@ private:
     rendering::Renderer::ModelID carId;
     float turnInput = 0;
     float accelerationInput = 0;
-    float accelerationTime = 0.2;
-    float drag = 2;
-    float relVelocity = 0;
+    float accelerationTime = 0.1f;
+    float drag = 1.0f;
+    float lateralDrag = 3.0f;
     float maxVelocity = 10;
-    float turnSpeed = 2;
     glm::vec3 modelOffset;
+    glm::vec3 velocity;
+    float turnSpeed = 50.0f;
+    float rotationVelocity = 0;
+    float rotationMaxVelocity = 3.0f;
+    float rotationDrag = 0.1f;
 
 public:
     glm::vec3 position{0};
@@ -193,19 +197,30 @@ public:
 
     void update(float deltaT)
     {
-        rotation = glm::angleAxis(turnInput * turnSpeed * relVelocity * deltaT, glm::vec3(0, -1, 0)) * rotation;
-        logDebug("{}", glm::to_string(rotation));
+        glm::vec3 forward = rotation * glm::vec3(0, 0, 1.0f);
+        glm::vec3 right = rotation * glm::vec3(1.0, 0, 0.0f);
 
-        relVelocity = glm::clamp(relVelocity + deltaT / accelerationTime * accelerationInput, -1.0f, 1.0f);
-        if (accelerationInput == 0)
+        float absVelocity = glm::length(velocity);
+        float forwardVelocity = glm::dot(forward, velocity);
+        float drift = glm::dot(right, velocity);
+
+        rotationVelocity *= glm::max(0.0f, 1.0f - rotationDrag * (1.0f + drift)) * deltaT;
+        rotationVelocity += turnInput * turnSpeed * forwardVelocity * deltaT;
+        rotationVelocity = glm::clamp(rotationVelocity, -rotationMaxVelocity, rotationMaxVelocity);
+        rotation = glm::angleAxis(rotationVelocity * deltaT, glm::vec3(0, -1, 0)) * rotation;
+
+        if (accelerationInput == 0.0f)
         {
-            relVelocity = glm::clamp(relVelocity + deltaT * drag * glm::sign(-relVelocity), -1.0f, 1.0f);
-            if (glm::abs(relVelocity) <= 0.02)
-            {
-                relVelocity = 0;
-            }
+            velocity *= glm::max(0.0f, 1.0f - drag * deltaT);
+            if (absVelocity < 0.02f)
+                velocity = glm::vec3(0.0f);
         }
-        position += rotation * glm::vec3(0, 0, relVelocity * maxVelocity) * deltaT;
+        else
+            velocity += forward * deltaT / accelerationTime * accelerationInput;
+
+        velocity -= right * drift * lateralDrag * deltaT;
+
+        position += velocity * deltaT;
     }
 };
 
@@ -226,12 +241,13 @@ public:
 
         floorId = registerModel(grid, palette, renderer);
 
-        scale = { 1.0f, 1.0f, 1.0f };
+        scale = {1.0f, 1.0f, 1.0f};
     }
 
     void draw()
     {
-        position = glm::round(glm::vec3(car.position.x, 0, car.position.z) / 64.0f) * 64.0f - glm::vec3(128.0f, 1.0f, 128.0f);
+        position =
+            glm::round(glm::vec3(car.position.x, 0, car.position.z) / 64.0f) * 64.0f - glm::vec3(128.0f, 1.0f, 128.0f);
         glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), position) * glm::scale(glm::mat4(1.0f), scale);
         renderer.drawModel(floorId, modelMat);
     }
