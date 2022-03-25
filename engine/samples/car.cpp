@@ -1,25 +1,31 @@
 #include <cubos/log.hpp>
-#include <cubos/io/window.hpp>
+
 #include <cubos/gl/render_device.hpp>
 #include <cubos/gl/vertex.hpp>
 #include <cubos/gl/palette.hpp>
 #include <cubos/gl/grid.hpp>
 #include <cubos/gl/debug.hpp>
+
 #include <cubos/rendering/deferred/deferred_renderer.hpp>
 #include <cubos/rendering/shadow_mapping/csm_shadow_mapper.hpp>
 #include <cubos/rendering/post_processing/copy_pass.hpp>
+
 #include <cubos/data/file_system.hpp>
 #include <cubos/data/std_archive.hpp>
 #include <cubos/data/qb_parser.hpp>
+
+#include <cubos/io/window.hpp>
 #include <cubos/io/input_manager.hpp>
 #include <cubos/io/sources/double_axis.hpp>
 #include <cubos/io/sources/single_axis.hpp>
 #include <cubos/io/sources/button_press.hpp>
+
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/ext.hpp>
+
 #include <unordered_map>
 
 using namespace cubos;
@@ -30,26 +36,21 @@ rendering::Renderer::ModelID registerModel(gl::Grid& grid, const gl::Palette& mo
                                            rendering::Renderer& renderer)
 {
     for (int x = 0; x < grid.getSize().x; ++x)
-    {
         for (int y = 0; y < grid.getSize().y; ++y)
-        {
             for (int z = 0; z < grid.getSize().z; ++z)
             {
                 auto index = grid.get(glm::vec3(x, y, z));
                 if (index > 0)
                     grid.set(glm::vec3(x, y, z), index + palette.getSize());
             }
-        }
-    }
+
     auto origSize = palette.getSize();
     for (int i = 0; i < modelPalette.getSize(); ++i)
-    {
         palette.set(origSize + i + 1, modelPalette.get(i + 1));
-    }
 
-    std::vector<cubos::gl::Vertex> vertices;
+    std::vector<gl::Vertex> vertices;
     std::vector<uint32_t> indices;
-    cubos::gl::triangulate(grid, vertices, indices);
+    gl::triangulate(grid, vertices, indices);
 
     return renderer.registerModel(vertices, indices);
 }
@@ -135,25 +136,26 @@ public:
 class Particle
 {
 private:
-    rendering::Renderer& renderer;
+    rendering::Renderer* renderer;
     static rendering::Renderer::ModelID modelId;
     static glm::vec3 modelOffset;
 
 public:
     glm::vec3 position{0};
     glm::quat rotation = glm::angleAxis(0.0f, glm::vec3(0, 1, 0));
-    glm::vec3 scale{1};
+    glm::vec3 scale{0.2f};
     glm::vec3 velocity{0};
+    float age = 0;
 
-    Particle(rendering::Renderer& renderer) : renderer(renderer)
+    Particle(rendering::Renderer& renderer) : renderer(&renderer)
     {
         if (modelId == -1)
         {
             auto palette = gl::Palette({
-                gl::Material{{0.5f, 0.5f, 0.5f, 1.0f}},
+                gl::Material{{1.0f, 0.5f, 0.5f, 1.0f}},
             });
             gl::Grid grid(glm::uvec3{1}, {1});
-            modelOffset = glm::vec3{0.5f};
+            modelOffset = glm::vec3{-0.5f};
 
             modelId = registerModel(grid, palette, renderer);
         }
@@ -162,53 +164,85 @@ public:
     void update(float deltaT)
     {
         position += velocity * deltaT;
+        scale *= glm::max(0.0f, 1.0f - deltaT);
+        age += deltaT;
     }
 
     void draw()
     {
         glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) *
                              glm::scale(glm::mat4(1.0f), scale) * glm::translate(glm::mat4{1.0f}, modelOffset);
-        renderer.drawModel(modelId, modelMat);
+        renderer->drawModel(modelId, modelMat);
     }
 };
 
 rendering::Renderer::ModelID Particle::modelId = -1;
+glm::vec3 Particle::modelOffset = {};
 
 class Trail
 {
 private:
     rendering::Renderer& renderer;
     std::vector<Particle> particles;
-    float t = 0;
-    float particlesPerSec = 1;
+    float t = 0.0f;
+    float particlesMaxAge = 10.0f;
+    size_t maxParticleCount = 100;
 
 public:
-    glm::vec3 pos{0};
+    bool enabled = false;
+    float timePerParticle = 0.02f;
+    glm::vec3 position = {0.0f, 0.0f, 0.0f};
+
     Trail(rendering::Renderer& renderer) : renderer(renderer)
     {
+    }
+
+    void spawn()
+    {
+        Particle particle(renderer);
+        particle.age = 0;
+        particle.position = position;
+        particle.velocity = glm::ballRand(0.5f) + glm::vec3{0.0f, 0.5f, 0.0f};
+
+        size_t oldest = 0;
+        for (size_t i = 0; i < particles.size(); ++i)
+        {
+            if (particles[i].age >= particlesMaxAge)
+            {
+                particles[i] = particle;
+                return;
+            }
+            else if (particles[i].age >= particles[oldest].age)
+                oldest = i;
+        }
+
+        if (particles.size() < maxParticleCount)
+            particles.push_back(particle);
+        else
+            particles[oldest] = particle;
     }
 
     void update(float deltaT)
     {
         for (Particle& particle : particles)
+            if (particle.age < particlesMaxAge)
+                particle.update(deltaT);
+
+        if (enabled)
+            t += deltaT;
+
+        while (t > timePerParticle)
         {
-            particle.update(deltaT);
-        }
-        t += deltaT;
-        while (t > particlesPerSec)
-        {
-            t -= deltaT;
-            auto& particle = particles.emplace_back(renderer);
-            particle.velocity = glm::vec3(1);
+            t -= timePerParticle;
+            spawn();
         }
     }
 
     void draw()
     {
         for (Particle& particle : particles)
-        {
-            particle.draw();
-        }
+            if (particle.age < particlesMaxAge)
+                particle.draw();
     }
 };
 
@@ -231,12 +265,16 @@ private:
     float rotationMaxVelocity = 3.0f;
     float rotationDrag = 0.1f;
 
+    glm::vec3 wheelOffsets[4];
+    Trail trails[4];
+
 public:
     glm::vec3 position{0};
     glm::quat rotation = glm::angleAxis(0.0f, glm::vec3(0, 1, 0));
     glm::vec3 scale{0.1f};
 
-    explicit Car(rendering::Renderer& renderer) : renderer(renderer)
+    explicit Car(rendering::Renderer& renderer)
+        : renderer(renderer), trails{Trail(renderer), Trail(renderer), Trail(renderer), Trail(renderer)}
     {
         using namespace cubos::data;
         auto qb = FileSystem::find("/assets/car.qb");
@@ -266,6 +304,13 @@ public:
         auto enableAction = io::InputManager::createAction("Enable Car");
         enableAction->addBinding([&](io::Context ctx) { enabled = !enabled; });
         enableAction->addSource(new io::ButtonPress(io::Key::Space));
+
+        wheelOffsets[0] = {modelOffset.x, 0.0f, modelOffset.z};
+        wheelOffsets[1] = {-modelOffset.x, 0.0f, modelOffset.z};
+        wheelOffsets[2] = {-modelOffset.x, 0.0f, -modelOffset.z};
+        wheelOffsets[3] = {modelOffset.x, 0.0f, -modelOffset.z};
+        for (int i = 0; i < 4; ++i)
+            wheelOffsets[i] *= 0.5f;
     }
 
     void draw()
@@ -273,6 +318,8 @@ public:
         glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) *
                              glm::scale(glm::mat4(1.0f), scale) * glm::translate(glm::mat4{1.0f}, modelOffset);
         renderer.drawModel(carId, modelMat);
+        for (int i = 0; i < 4; ++i)
+            trails[i].draw();
     }
 
     void update(float deltaT)
@@ -301,6 +348,12 @@ public:
         velocity -= right * drift * lateralDrag * deltaT;
 
         position += velocity * deltaT;
+        for (int i = 0; i < 4; ++i)
+        {
+            trails[i].position = position + rotation * wheelOffsets[i] * scale;
+            trails[i].enabled = drift * drift > 1.0f;
+            trails[i].update(deltaT);
+        }
     }
 };
 
