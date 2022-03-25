@@ -4,6 +4,7 @@
 #include <cubos/gl/vertex.hpp>
 #include <cubos/gl/palette.hpp>
 #include <cubos/gl/grid.hpp>
+#include <cubos/gl/debug.hpp>
 #include <cubos/rendering/deferred/deferred_renderer.hpp>
 #include <cubos/rendering/shadow_mapping/csm_shadow_mapper.hpp>
 #include <cubos/rendering/post_processing/copy_pass.hpp>
@@ -14,10 +15,10 @@
 #include <cubos/io/sources/double_axis.hpp>
 #include <cubos/io/sources/single_axis.hpp>
 #include <cubos/io/sources/button_press.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/quaternion.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/ext.hpp>
 #include <unordered_map>
 
@@ -139,14 +140,16 @@ private:
     rendering::Renderer::ModelID carId;
     float turnInput = 0;
     float accelerationInput = 0;
-    float accelerationTime = 1;
-    float drag = 1;
+    float accelerationTime = 0.2;
+    float drag = 2;
     float relVelocity = 0;
     float maxVelocity = 10;
+    float turnSpeed = 2;
+    glm::vec3 modelOffset;
 
 public:
     glm::vec3 position{0};
-    glm::quat rotation{};
+    glm::quat rotation = glm::angleAxis(0.0f, glm::vec3(0, 1, 0));
     glm::vec3 scale{0.1f};
 
     explicit Car(rendering::Renderer& renderer) : renderer(renderer)
@@ -156,6 +159,9 @@ public:
         std::vector<QBMatrix> carModel;
         auto qbStream = qb->open(File::OpenMode::Read);
         parseQB(carModel, *qbStream);
+
+        modelOffset = -glm::vec3(carModel[0].grid.getSize()) / 2.0f;
+        modelOffset.y = 0;
 
         carId = registerModel(carModel[0].grid, carModel[0].palette, renderer);
 
@@ -180,20 +186,26 @@ public:
 
     void draw()
     {
-        glm::mat4 modelMat =
-            glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) * glm::scale(glm::mat4(1.0f), scale);
+        glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), position) * glm::toMat4(rotation) *
+                             glm::scale(glm::mat4(1.0f), scale) * glm::translate(glm::mat4{1.0f}, modelOffset);
         renderer.drawModel(carId, modelMat);
     }
 
     void update(float deltaT)
     {
+        rotation = glm::angleAxis(turnInput * turnSpeed * deltaT, glm::vec3(0, -1, 0)) * rotation;
+        logDebug("{}", glm::to_string(rotation));
+
         relVelocity = glm::clamp(relVelocity + deltaT / accelerationTime * accelerationInput, -1.0f, 1.0f);
         if (accelerationInput == 0)
         {
             relVelocity = glm::clamp(relVelocity + deltaT * drag * glm::sign(-relVelocity), -1.0f, 1.0f);
+            if (glm::abs(relVelocity) <= 0.02)
+            {
+                relVelocity = 0;
+            }
         }
-        position += glm::vec3(0, 0, relVelocity * maxVelocity) * deltaT;
-        position += glm::vec3(turnInput, 0, 0) * deltaT;
+        position += rotation * glm::vec3(0, 0, relVelocity * maxVelocity) * deltaT;
     }
 };
 
@@ -239,6 +251,8 @@ int main(void)
     window->setMouseLockState(io::MouseLockState::Locked);
 
     auto& renderDevice = window->getRenderDevice();
+
+    gl::Debug::init(renderDevice);
 
     auto shadowMapper = rendering::CSMShadowMapper(renderDevice, 512, 2048, 256, 4);
     shadowMapper.setCascadeDistances({/**/ 3, 10, 24 /**/});
