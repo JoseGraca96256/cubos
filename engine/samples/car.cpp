@@ -193,7 +193,7 @@ public:
 
     void update(float deltaT)
     {
-        rotation = glm::angleAxis(turnInput * turnSpeed * deltaT, glm::vec3(0, -1, 0)) * rotation;
+        rotation = glm::angleAxis(turnInput * turnSpeed * relVelocity * deltaT, glm::vec3(0, -1, 0)) * rotation;
         logDebug("{}", glm::to_string(rotation));
 
         relVelocity = glm::clamp(relVelocity + deltaT / accelerationTime * accelerationInput, -1.0f, 1.0f);
