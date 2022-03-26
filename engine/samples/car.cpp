@@ -141,6 +141,17 @@ private:
     static glm::vec3 modelOffset;
 
 public:
+    static void initParticleModel(rendering::Renderer& renderer)
+    {
+        auto palette = gl::Palette({
+            gl::Material{{1.0f, 0.5f, 0.5f, 1.0f}},
+        });
+        gl::Grid grid(glm::uvec3{1}, {1});
+        modelOffset = glm::vec3{-0.5f};
+
+        modelId = registerModel(grid, palette, renderer);
+    }
+
     glm::vec3 position{0};
     glm::quat rotation = glm::angleAxis(0.0f, glm::vec3(0, 1, 0));
     glm::vec3 scale{0.2f};
@@ -149,16 +160,6 @@ public:
 
     Particle(rendering::Renderer& renderer) : renderer(&renderer)
     {
-        if (modelId == -1)
-        {
-            auto palette = gl::Palette({
-                gl::Material{{1.0f, 0.5f, 0.5f, 1.0f}},
-            });
-            gl::Grid grid(glm::uvec3{1}, {1});
-            modelOffset = glm::vec3{-0.5f};
-
-            modelId = registerModel(grid, palette, renderer);
-        }
     }
 
     void update(float deltaT)
@@ -415,6 +416,7 @@ int main(void)
 
     Car car(renderer);
     Floor floor(renderer, car);
+    Particle::initParticleModel(renderer);
     FreeCamera camera;
 
     auto paletteID = renderer.registerPalette(palette);
