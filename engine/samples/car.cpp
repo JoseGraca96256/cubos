@@ -184,7 +184,7 @@ class Trail
 {
 private:
     rendering::Renderer& renderer;
-    std::vector<Particle> particles;
+    std::list<Particle> particles;
     float t = 0.0f;
     float particlesMaxAge = 10.0f;
     size_t maxParticleCount = 100;
@@ -205,30 +205,11 @@ public:
         particle.position = position;
         particle.velocity = glm::ballRand(0.5f) + glm::vec3{0.0f, 0.5f, 0.0f};
 
-        size_t oldest = 0;
-        for (size_t i = 0; i < particles.size(); ++i)
-        {
-            if (particles[i].age >= particlesMaxAge)
-            {
-                particles[i] = particle;
-                return;
-            }
-            else if (particles[i].age >= particles[oldest].age)
-                oldest = i;
-        }
-
-        if (particles.size() < maxParticleCount)
-            particles.push_back(particle);
-        else
-            particles[oldest] = particle;
+        particles.push_front(particle);
     }
 
     void update(float deltaT)
     {
-        for (Particle& particle : particles)
-            if (particle.age < particlesMaxAge)
-                particle.update(deltaT);
-
         if (enabled)
             t += deltaT;
 
@@ -237,13 +218,19 @@ public:
             t -= timePerParticle;
             spawn();
         }
+        while (particles.size() > maxParticleCount)
+        {
+            particles.pop_back();
+        }
+        for (Particle& particle : particles)
+            if (particle.age < particlesMaxAge)
+                particle.update(deltaT);
     }
 
     void draw()
     {
         for (Particle& particle : particles)
-            if (particle.age < particlesMaxAge)
-                particle.draw();
+            particle.draw();
     }
 };
 
